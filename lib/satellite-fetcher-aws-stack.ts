@@ -50,6 +50,18 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       new apigateway.LambdaIntegration(dockerFunc)
     );
 
+    const lightningDataResource = api.root.addResource("lightning");
+    fireDataResource.addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(dockerFunc)
+    );
+
+    const rainDataResource = api.root.addResource("rain");
+    fireDataResource.addMethod(
+      "GET",
+      new apigateway.LambdaIntegration(dockerFunc)
+    );
+
     new cdk.CfnOutput(this, "ApiGatewayUrl", {
       value: api.url,
     });
