@@ -51,13 +51,13 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
     );
 
     const lightningDataResource = api.root.addResource("lightning");
-    fireDataResource.addMethod(
+    lightningDataResource.addMethod(
       "GET",
       new apigateway.LambdaIntegration(dockerFunc)
     );
 
     const rainDataResource = api.root.addResource("rain");
-    fireDataResource.addMethod(
+    rainDataResource.addMethod(
       "GET",
       new apigateway.LambdaIntegration(dockerFunc)
     );

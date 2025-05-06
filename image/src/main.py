@@ -61,7 +61,7 @@ def get_lightning_data(lat, lon, dist=50):
         }
 
     try:
-        file = Dataset(f'./{file_path}')
+        file = Dataset(f'{file_path}')
     except Exception as e:
         logger.error(f"Error fetching lightning data: {e}")
         return {
