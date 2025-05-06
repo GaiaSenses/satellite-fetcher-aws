@@ -51,8 +51,14 @@ def get_lightning_data(lat, lon, dist=50):
     lat = float(lat)
     lon = float(lon)
 
-    key = '2'
-    file_path = aws.download_aws(key)
+    try:
+        file_path = aws.download_aws('2')
+    except Exception as e:
+        logger.error(f"Error downloading lightning data: {e}")
+        return {
+            "statusCode": 501,
+            "body": json.dumps({"error": "Error downloading lightning data"})
+        }
 
     try:
         file = Dataset(f'./{file_path}')
@@ -98,8 +104,14 @@ def get_rain_data(lat, lon):
     lat = float(lat)
     lon = float(lon)
 
-    key = '1Q'
-    file_path = aws.download_aws(key)
+    try:
+        file_path = aws.download_aws('1Q')
+    except Exception as e:
+        logger.error(f"Error downloading rain data: {e}")
+        return {
+            "statusCode": 501,
+            "body": json.dumps({"error": "Error downloading rain data"})
+        }
 
     try:
         file = Dataset(f'./{file_path}')
