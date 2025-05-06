@@ -1,3 +1,5 @@
 numpy
 geopandas
 shapely
+netCDF4
+boto3
