@@ -8,7 +8,7 @@ from botocore.config import Config
 
 class awsAccessGOES:
 
-    __input_archive = "samples"; os.makedirs("samples", exist_ok=True)
+    __input_archive = "tmp"; os.makedirs("tmp", exist_ok=True)
 
     __products = {'11': 'ABI-L1b-RadF',
                   '12': 'ABI-L2-CMIPF', 
@@ -86,9 +86,6 @@ class awsAccessGOES:
         day = date.day
         hour = date.hour
         minutes = date.minute
-        day = 25
-        hour = 11
-        minute = 30
 
         month -= 1
 
