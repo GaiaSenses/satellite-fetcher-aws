@@ -202,4 +202,4 @@ def handler(event, context):
 # A shortcut for local testing −87.775
 # handler({"path":"/fire", "queryStringParameters":{"lat":"-22.851692221661406", "lon":"47.1276886499418", "dist":"100"}} , {})
 # handler({"path":"/lightning", "queryStringParameters":{"lat":"-22.851692221661406", "lon":"47.1276886499418", "dist":"100"}} , {})
-handler({"path":"/rain","queryStringParameters": {"lat":-22.816532, "lon":-47.072649}} , {})
+# handler({"path":"/rain","queryStringParameters": {"lat":-22.816532, "lon":-47.072649}} , {})
