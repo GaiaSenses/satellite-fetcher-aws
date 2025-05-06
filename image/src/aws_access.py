@@ -8,7 +8,8 @@ from botocore.config import Config
 
 class awsAccessGOES:
 
-    __input_archive = "tmp"; os.makedirs("tmp", exist_ok=True)
+    __input_archive = "/tmp"
+    #os.makedirs("tmp", exist_ok=True)
 
     __products = {'11': 'ABI-L1b-RadF',
                   '12': 'ABI-L2-CMIPF', 
