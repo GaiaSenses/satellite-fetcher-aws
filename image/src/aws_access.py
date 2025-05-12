@@ -35,10 +35,10 @@ class awsAccessGOES:
                   '1N': 'ABI-L2-FSCF',
                   '1O': 'ABI-L2-LSAF',
                   '1P': 'ABI-L2-LSTF',
-                  '1Q': 'ABI-L2-RRQPEF',
+                  '1Q': ['ABI-L2-RRQPEF', 10],
                   '1R': 'ABI-L2-RSRF',
                   '1S': 'ABI-L2-SSTF',
-                  '2': 'GLM-L2-LCFA'}
+                  '2': ['GLM-L2-LCFA', 1]}
 
     __days_in_yearA = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
     __days_in_yearB = [0, 31, 60, 91, 121, 152, 182, 213, 243, 274, 305, 335]
@@ -54,14 +54,14 @@ class awsAccessGOES:
 
         s3_client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
         s3_result = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=prefix, Delimiter = "/")
-        s3_result_CM = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=cloud_mask, Delimiter = "/")
 
         if ('Contents' in s3_result):
-            if (need_CM):
-                s3_client.download_file('noaa-goes19', s3_result_CM['Contents'][0]['Key'],f'{input_archive}/{key}_cm.nc')
+            if (need_CM):    
+                s3_result_CM = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=cloud_mask, Delimiter = "/")
+                s3_client.download_file('noaa-goes19', s3_result_CM['Contents'][-1]['Key'],f'{input_archive}/{key}_cm.nc')
 
             if (not os.path.exists(f'{input_archive}/{key}.nc')):
-                s3_client.download_file('noaa-goes19', s3_result['Contents'][0]['Key'],f'{input_archive}/{key}.nc')
+                s3_client.download_file('noaa-goes19', s3_result['Contents'][-1]['Key'],f'{input_archive}/{key}.nc')
 
             if (os.path.exists(f'{input_archive}/{key}.nc')):
                 return f'{input_archive}/{key}.nc'
@@ -77,10 +77,11 @@ class awsAccessGOES:
         days_in_yearB = awsAccessGOES.__days_in_yearB
         date = awsAccessGOES.__date
 
-        product_name = products[key]
+        product_name = products[key][0]
+        product_time = products[key][1]
 
         minutes = date.minute
-        date = date - datetime.timedelta(minutes=(minutes % 10) + 10)
+        date -= datetime.timedelta(minutes=(minutes % product_time) + product_time) if product_time >= 5 else datetime.timedelta(minutes=(minutes % product_time) + 2*product_time)
 
         year = date.year
         month = date.month
