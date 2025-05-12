@@ -81,7 +81,7 @@ def get_lightning_data(lat, lon, dist=50):
         if np.abs(lightning_lat[i] - lat) <= latlon_diff and np.abs(lightning_lon[i] - lon) <= latlon_diff:
             if file['flash_quality_flag'][i] == 0:
                 lightning_count += 1
-                flash_events.append({"latitude": lightning_lat[i], "longitude": lightning_lon[i], "energy": lightning_energy[i]})
+                flash_events.append({"latitude": float(lightning_lat[i]), "longitude": float(lightning_lon[i]), "energy (pJ)": float(lightning_energy[i]/1e-12)})
 
     file.close()
 
@@ -123,7 +123,7 @@ def get_rain_data(lat, lon):
         }
 
     i, j = aws.geo2grid(lat, lon, file)
-    rain_data = int(file['RRQPE'][:][i][j])
+    rain_data = float(file['RRQPE'][:][i][j])
     max_rain = file['maximum_rainfall_rate']
 
     file.close()
