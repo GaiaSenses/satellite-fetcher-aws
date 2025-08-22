@@ -9,41 +9,46 @@ from botocore.config import Config
 class awsAccessGOES:
 
     __input_archive = "/tmp"
-    #os.makedirs("tmp", exist_ok=True)
 
-    __products = {'11': 'ABI-L1b-RadF',
-                  '12': 'ABI-L2-CMIPF', 
-                  '13': 'ABI-L2-MCMIPF',
-                  '14': 'ABI-L2-ACHAF',
-                  '15': 'ABI-L2-ACF',
-                  '16': 'ABI-L2-ACMF',
-                  '17': 'ABI-L2-ACTPF',
-                  '18': 'ABI-L2-CTPF',
-                  '19': 'ABI-L2-CODF',
-                  '1A': 'ABI-L2-CPSF',
-                  '1C': 'ABI-L2-ADPF',
-                  '1D': 'ABI-L2-AODF',
-                  '1E': 'ABI-L2-BRFF',
-                  '1F': 'ABI-L2-DMWF',
-                  '1G': 'ABI-L2-DMWVF',
-                  '1H': 'ABI-L2-TPWF',
-                  '1I': 'ABI-L2-DSIF',
-                  '1J': 'ABI-L2-LVMPF',
-                  '1K': 'ABI-L2-LVTPF',
-                  '1L': 'ABI-L2-DSRF',
-                  '1M': 'ABI-L2-FDCF',
-                  '1N': 'ABI-L2-FSCF',
-                  '1O': 'ABI-L2-LSAF',
-                  '1P': 'ABI-L2-LSTF',
-                  '1Q': ['ABI-L2-RRQPEF', 10],
-                  '1R': 'ABI-L2-RSRF',
-                  '1S': 'ABI-L2-SSTF',
-                  '2': ['GLM-L2-LCFA', 1]}
+    '''Ordem dos produtos segue a mesma ordem do site oficial https://www.goes-r.gov/products/overview.html
+        products['name'][0] -> Sigla para o produto
+        products['name'][1] -> Resolução temporal em minutos
+    '''
+    __products = {'Aerossol Detection': ['ABI-L2-ADPF', 10],
+                  'Aerossol Optical Depth': ['ABI-L2-AODF', 10],
+                #   'Aerossol Particle Size': ['ABI-L2-????', ?], # Produto não disponível ainda
+                  'Clear Sky Mask': ['ABI-L2-ACMF', 10],
+                  'Cloud Layers': ['ABI-L2-CCLF', 60],
+                  'Cloud and Moisture': ['ABI-L2-CMIPF', 10],
+                  'Multi-Channel Cloud and Moisture': ['ABI-L2-MCMIPF', 10], # Documentado em conjunto com Cloud and Moisture no site
+                  'Cloud Optical Depth': ['ABI-L2-CODF', 10],
+                  'Cloud Particle Size': ['ABI-L2-CPSF', 10],
+                  'Cloud Top Height': ['ABI-L2-ACHAF', 10],
+                  'Cloud Top Phase': ['ABI-L2-ACTPF', 10],
+                  'Cloud Top Pressure': ['ABI-L2-CTPF', 10],
+                  'Cloud Top Temperature': ['ABI-L2-ACHTF', 10],
+                  'Wind Direction': ['ABI-L2-DMWF', 60],
+                  'Water Vapor Direction': ['ABI-L2-DMWVF', 60], # Documentado em conjunto com Wind Direction no site
+                  'Stability Indices': ['ABI-L2-DSIF', 10],
+                  'Downward Shortwave Radiation': ['ABI-L2-DSRF', 10],
+                  'Firespot': ['ABI-L2-FDCF', 10],
+                  'Land Albedo': ['ABI-L2-LSAF', 10],
+                  'Land Bidirectional Reflectance': ['ABI-L2-BRFF', 10],
+                  'Land Temperature': ['ABI-L2-LSTF', 60],
+                  'Moisture Profile': ['ABI-L2-LVMPF', 10],
+                  'Temperature Profile': ['ABI-L2-LVTPF', 10],
+                  'Radiances': ['ABI-L1b-RadF', 10],
+                  'Rainfall Rate': ['ABI-L2-RRQPEF', 10],
+                  'Reflected Shortwave Radiation': ['ABI-L2-RSRF', 10],
+                  'Ice Age and Thickness': ['ABI-L2-AITAF', 180],
+                  'Ice Concentration and Extent': ['ABI-L2-AICEF', 180],
+                #   'Ice Motion': ['ABI-L2-?????', ?], # Produto não disponível ainda
+                  'Sea Temperature': ['ABI-L2-SSTF', 60],
+                  'Snow Cover': ['ABI-L2-FSCF', 60],
+                  'Total Precipitable Water': ['ABI-L2-TPWF', 10],
+                  'Lightning': ['GLM-L2-LCFA', 1],
 
-    __days_in_yearA = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    __days_in_yearB = [0, 31, 60, 91, 121, 152, 182, 213, 243, 274, 305, 335]
-
-    __date = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=0)))
+                  'Photosynthetically Active Radiation': ['ABI-L2-PARF', 10]} # Validação prevista para 17/abr/2026, ainda não está documentado no site, mas já está disponível para download
 
     @staticmethod
     def download_aws(key: str, need_CM: bool =False, band: int =0) -> str:
@@ -54,6 +59,8 @@ class awsAccessGOES:
 
         s3_client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
         s3_result = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=prefix, Delimiter = "/")
+
+        key = key.replace(' ', '_')
 
         if ('Contents' in s3_result):
             if (need_CM):    
@@ -72,35 +79,29 @@ class awsAccessGOES:
     def __get_info(key: str, need_CM: bool =False, band: int = 0) -> list[str]:
         """Get all the necessary info to find a archive on aws"""
         
-        products = awsAccessGOES.__products
-        days_in_yearA = awsAccessGOES.__days_in_yearA
-        days_in_yearB = awsAccessGOES.__days_in_yearB
-        date = awsAccessGOES.__date
+        date = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=0)))
 
+        products = awsAccessGOES.__products
         product_name = products[key][0]
         product_time = products[key][1]
 
         minutes = date.minute
-        date -= datetime.timedelta(minutes=(minutes % product_time) + product_time) if product_time >= 5 else datetime.timedelta(minutes=(minutes % product_time) + 2*product_time)
-
+        date -= datetime.timedelta(minutes=(minutes % product_time) + 2*product_time) if product_time < 60 else datetime.timedelta(minutes=minutes)
+        
         year = date.year
-        month = date.month
-        day = date.day
         hour = date.hour
         minutes = date.minute
 
-        month -= 1
-
-        days_in_year = days_in_yearB[:] if (year % 4 == 0) else days_in_yearA[:]
-        day_of_year = days_in_year[month] + day
+        first_day = datetime.datetime(date.year, 1, 1, tzinfo=datetime.timezone(datetime.timedelta(hours=0)))
+        day_of_year = (date - first_day).days + 1
 
         if (band != 0):
             prefix = f'{product_name}/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_{product_name}-M6C{band:02.0f}_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'
         else:
-            if (key == '2'):
-                prefix = f'{product_name}/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_{product_name}_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'
-            else:
+            if (key != 'Lightning'):
                 prefix = f'{product_name}/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_{product_name}-M6_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'
+            else:
+                prefix = f'{product_name}/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_{product_name}_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'
 
         if (need_CM):
             cloud_mask = f'ABI-L2-ACMF/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_ABI-L2-ACMF-M6_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'

@@ -52,7 +52,7 @@ def get_lightning_data(lat, lon, dist=50):
     lon = float(lon)
 
     try:
-        file_path = aws.download_aws('2')
+        file_path = aws.download_aws('Lightning')
     except Exception as e:
         logger.error(f"Error downloading lightning data: {e}")
         return {
@@ -105,7 +105,7 @@ def get_rain_data(lat, lon):
     lon = float(lon)
 
     try:
-        file_path = aws.download_aws('1Q')
+        file_path = aws.download_aws('Rainfall Rate')
     except Exception as e:
         logger.error(f"Error downloading rain data: {e}")
         return {
@@ -123,8 +123,8 @@ def get_rain_data(lat, lon):
         }
 
     i, j = aws.geo2grid(lat, lon, file)
-    rain_data = float(file['RRQPE'][:][i][j])
-    max_rain = file['maximum_rainfall_rate']
+    rain_data = float(file['RRQPE'][i][j])
+    max_rain = float(file['maximum_rainfall_rate'][0])
 
     file.close()
 
