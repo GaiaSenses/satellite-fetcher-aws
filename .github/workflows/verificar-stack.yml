@@ -1,0 +1,73 @@
+name: Verificar stack
+
+# This repository had no automated check of any kind, and it is the one that
+# turns into deployed infrastructure — a mistake here does not break a page, it
+# breaks the map's whole backend. In a single day it revealed four defects that
+# were already in production: /rain opening `.//tmp/…` and answering 500 to
+# everything, /rain reading a full GOES raster and dying on OutOfMemory,
+# /lightning serving the same granule for the life of a container, and a request
+# with no query string returning 502 where the code meant to return 400.
+#
+# None of those are subtle. All of them would have been caught by a check that
+# merely ran the code once. What was missing was not sophistication — it was
+# having a check at all.
+#
+# This job is a required status check on main, so it has no `paths-ignore`: a
+# required check that does not report leaves the pull request waiting forever
+# for an answer that never comes.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verificar-stack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tipos
+        run: npm run build
+
+      # The central check: proof that the stack still describes valid
+      # infrastructure, before anyone tries to deploy it.
+      #
+      # No AWS credentials needed. bin/satellite-fetcher-aws.ts reads the account
+      # from CDK_DEFAULT_ACCOUNT, which is unset here, so the stack synthesises
+      # as account-agnostic with its region pinned — exactly what validation
+      # wants. Docker is not needed either: `cdk synth` hashes the image
+      # directory, it does not build it. Only `cdk deploy` needs Docker.
+      #
+      # The stack throws without FIRMS_MAP_KEY, on purpose, so that a backend
+      # answering 500 to every /fire cannot be deployed. CI feeds a throwaway
+      # value rather than weakening the guard — failing closed is the correct
+      # behaviour and should stay that way.
+      - name: Sintetizar a stack
+        run: npx cdk synth
+        env:
+          FIRMS_MAP_KEY: chave-de-synth
+
+      # Three of the four defects above were in the Python, not the CDK. This
+      # will not catch a logic error, but it catches the file that does not
+      # parse — and that file ships straight into a Lambda image.
+      - name: Sintaxe do Python
+        run: python3 -m py_compile image/src/*.py
+
+      - name: Testes
+        run: npm test
