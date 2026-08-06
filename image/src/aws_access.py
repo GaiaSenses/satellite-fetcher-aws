@@ -40,58 +40,117 @@ class awsAccessGOES:
                   '1S': 'ABI-L2-SSTF',
                   '2': 'GLM-L2-LCFA'}
 
-    __days_in_yearA = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    __days_in_yearB = [0, 31, 60, 91, 121, 152, 182, 213, 243, 274, 305, 335]
+    @staticmethod
+    def __local_path(key: str, object_key: str, suffix: str = "") -> str:
+        """Local name for one S3 object, derived from the object itself.
 
-    __date = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=0)))
+        The name used to be `{key}.nc` — the same string for every granule of a
+        product. Combined with the "download only if absent" check below, that
+        meant a warm container kept serving whichever granule it happened to
+        download first, forever. Naming the file after the S3 object makes the
+        cache say what it actually holds, so a new granule is a new file and
+        the check does what it reads like it does.
+        """
+        name = os.path.basename(object_key)
+        return f'{awsAccessGOES.__input_archive}/{key}{suffix}__{name}'
+
+    @staticmethod
+    def __drop_stale(key: str, keep: str, suffix: str = "") -> None:
+        """Remove earlier granules of this product from /tmp.
+
+        Lambda gives 512 MB of /tmp and reuses it across invocations. Caching
+        per granule without ever deleting would fill it over a container's
+        life, and then every request fails on a full disk instead of on
+        anything to do with satellites.
+        """
+        archive = awsAccessGOES.__input_archive
+        marker = f'{key}{suffix}__'
+        for name in os.listdir(archive):
+            if name.startswith(marker) and os.path.join(archive, name) != keep:
+                try:
+                    os.remove(os.path.join(archive, name))
+                except OSError:
+                    # Best effort. A file we cannot remove is not a reason to
+                    # fail a request that has the data it needs.
+                    pass
 
     @staticmethod
     def download_aws(key: str, need_CM: bool =False, band: int =0) -> str:
-
-        input_archive = awsAccessGOES.__input_archive
 
         prefix, cloud_mask = awsAccessGOES.__get_info(key, need_CM, band)
 
         s3_client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
         s3_result = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=prefix, Delimiter = "/")
-        s3_result_CM = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=cloud_mask, Delimiter = "/")
 
-        if ('Contents' in s3_result):
-            if (need_CM):
-                s3_client.download_file('noaa-goes19', s3_result_CM['Contents'][0]['Key'],f'{input_archive}/{key}_cm.nc')
+        if ('Contents' not in s3_result):
+            # Returning a path to a file that was never written pushed the
+            # failure downstream, where it surfaced as "error reading the
+            # file" — which sends whoever is debugging to the parser instead
+            # of to the empty listing that actually caused it.
+            raise FileNotFoundError(
+                f'no object under prefix {prefix} in noaa-goes19'
+            )
 
-            if (not os.path.exists(f'{input_archive}/{key}.nc')):
-                s3_client.download_file('noaa-goes19', s3_result['Contents'][0]['Key'],f'{input_archive}/{key}.nc')
+        object_key = s3_result['Contents'][0]['Key']
+        path = awsAccessGOES.__local_path(key, object_key)
 
-            if (os.path.exists(f'{input_archive}/{key}.nc')):
-                return f'{input_archive}/{key}.nc'
+        if (not os.path.exists(path)):
+            s3_client.download_file('noaa-goes19', object_key, path)
+        awsAccessGOES.__drop_stale(key, path)
 
-        return f'{input_archive}/{key}.nc'
-    
+        if (need_CM):
+            # This listing used to run on every call, including the ones that
+            # do not want a cloud mask — and with an empty prefix, which asks
+            # S3 to enumerate the root of the bucket. /lightning never needs
+            # it, and /lightning is the endpoint called most.
+            s3_result_CM = s3_client.list_objects_v2(
+                Bucket='noaa-goes19', Prefix=cloud_mask, Delimiter="/"
+            )
+            if ('Contents' not in s3_result_CM):
+                raise FileNotFoundError(
+                    f'no cloud mask under prefix {cloud_mask} in noaa-goes19'
+                )
+
+            cm_object_key = s3_result_CM['Contents'][0]['Key']
+            cm_path = awsAccessGOES.__local_path(key, cm_object_key, "_cm")
+            if (not os.path.exists(cm_path)):
+                s3_client.download_file('noaa-goes19', cm_object_key, cm_path)
+            awsAccessGOES.__drop_stale(key, cm_path, "_cm")
+
+        return path
+
     @staticmethod
     def __get_info(key: str, need_CM: bool =False, band: int = 0) -> list[str]:
         """Get all the necessary info to find a archive on aws"""
         
         products = awsAccessGOES.__products
-        days_in_yearA = awsAccessGOES.__days_in_yearA
-        days_in_yearB = awsAccessGOES.__days_in_yearB
-        date = awsAccessGOES.__date
+
+        # Read the clock now, on every call.
+        #
+        # This used to be a class attribute, evaluated once when the module was
+        # imported — that is, once per cold start. Every later request in the
+        # same container rebuilt the same S3 prefix from a timestamp frozen
+        # minutes or hours earlier, and since the cache was keyed by product
+        # rather than by granule, it kept answering with the same flashes. A
+        # warm container served a snapshot of whenever it happened to start.
+        date = datetime.datetime.now(datetime.timezone.utc)
 
         product_name = products[key]
 
-        minutes = date.minute
-        date = date - datetime.timedelta(minutes=(minutes % 10) + 10)
+        # Rewind to a granule that has certainly been published: GOES uploads
+        # are minutes behind real time, and asking for the current slot returns
+        # an empty listing.
+        date = date - datetime.timedelta(minutes=(date.minute % 10) + 10)
 
         year = date.year
-        month = date.month
-        day = date.day
         hour = date.hour
         minutes = date.minute
 
-        month -= 1
-
-        days_in_year = days_in_yearB[:] if (year % 4 == 0) else days_in_yearA[:]
-        day_of_year = days_in_year[month] + day
+        # tm_yday is the day of the year the calendar already knows how to
+        # compute. The two hand-written month tables it replaces decided leap
+        # years with `year % 4 == 0`, which is wrong in 2100 and, more to the
+        # point, is arithmetic nobody needs to own.
+        day_of_year = date.timetuple().tm_yday
 
         if (band != 0):
             prefix = f'{product_name}/{year}/{day_of_year:03.0f}/{hour:02.0f}/OR_{product_name}-M6C{band:02.0f}_G19_s{year}{day_of_year:03.0f}{hour:02.0f}{minutes:02.0f}'
