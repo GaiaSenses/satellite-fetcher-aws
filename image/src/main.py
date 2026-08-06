@@ -155,13 +155,42 @@ def get_rain_data(lat, lon):
         }
 
 
+def _respond(response_data):
+    """Wrap data in a 200, and let a failure keep the status it chose.
+
+    Every route used to do `{"statusCode": 200, "body": json.dumps(result)}`
+    regardless of what the result was. The get_*_data functions signal failure
+    by returning an envelope of their own — `{"statusCode": 500, "body": …}` —
+    so a failure came back as HTTP 200 carrying a 500 inside the body.
+
+    That is how /rain went months answering nothing but errors while looking
+    healthy: the caller checks `res.ok`, sees 200, and treats the error
+    envelope as data. Anything watching status codes — the web app, a future
+    alarm, a person running curl — was told the opposite of the truth.
+
+    Success responses are byte-for-byte what they were; only failures change.
+    """
+    if isinstance(response_data, dict) and "statusCode" in response_data:
+        return response_data
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps(response_data)
+    }
+
+
 def handler(event, context):
-    
+
     logger.info(f"Received event: {json.dumps(event, indent=2)}")
 
     raw_path = event.get("rawPath", "/")
     path = event.get("path", "/")
-    query_params = event.get("queryStringParameters", {})
+    # `.get(key, {})` only falls back when the key is missing, and API Gateway
+    # sends `"queryStringParameters": null` when a request carries none. The
+    # default never applied, `None.get("lat")` raised, and a request with no
+    # parameters came back as 502 Internal server error instead of the 400 the
+    # code below is written to return. `or {}` covers both null and absent.
+    query_params = event.get("queryStringParameters") or {}
 
     if path == "/fire" or raw_path == "/fire":
         lat = query_params.get("lat")
@@ -177,10 +206,7 @@ def handler(event, context):
 
         logger.info(f"Fetching fire data for lat: {lat} and lon: {lon}.")
         response_data = get_fire_data(lat, lon, dist)
-        return {
-            "statusCode": 200,
-            "body": json.dumps(response_data)
-        }
+        return _respond(response_data)
     
     elif path == "/lightning" or raw_path == "/lightning":
         lat = query_params.get("lat")
@@ -196,10 +222,7 @@ def handler(event, context):
 
         logger.info(f"Fetching lightning data for lat: {lat} and lon: {lon}.")
         response_data = get_lightning_data(lat, lon, dist)
-        return {
-            "statusCode": 200,
-            "body": json.dumps(response_data)
-        }
+        return _respond(response_data)
     
     elif path == "/rain" or raw_path == "/rain":
         lat = query_params.get("lat")
@@ -214,16 +237,13 @@ def handler(event, context):
 
         logger.info(f"Fetching rain data for lat: {lat} and lon: {lon}.")
         response_data = get_rain_data(lat, lon)
-        return {
-            "statusCode": 200,
-            "body": json.dumps(response_data)
-        }
+        return _respond(response_data)
         
     logger.error("Invalid route accessed.")
 
     return {
-        "statucCode":404, 
-        "body":json.dumps({"error":"Invalid route."})
+        "statusCode": 404,
+        "body": json.dumps({"error": "Invalid route."})
     }
 
 # A shortcut for local testing −87.775
