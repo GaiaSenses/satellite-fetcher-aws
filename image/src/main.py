@@ -114,7 +114,13 @@ def get_rain_data(lat, lon):
         }
 
     try:
-        file = Dataset(f'./{file_path}')
+        # `./{file_path}` turned the absolute path download_aws returns into
+        # `.//tmp/...`, which resolves against the working directory —
+        # /var/task in Lambda — and never exists, so /rain answered 500 to
+        # every request. get_lightning_data above already passes the path
+        # unchanged; this is the other half of the inconsistency that the
+        # commit named "fixing inconsistnt tmp path" left behind.
+        file = Dataset(file_path)
     except Exception as e:
         logger.error(f"Error fetching rain data: {e}")
         return {
