@@ -55,7 +55,25 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
 
     const dockerFunc = new lambda.DockerImageFunction(this, "DockerFunc", {
       code: lambda.DockerImageCode.fromImageAsset("./image"),
-      memorySize: 1024,
+      /**
+       * 512 MB, not the 1024 this stack used to ask for. New AWS accounts are
+       * capped there until the account matures, and CloudFormation refuses the
+       * larger value outright — the first deploy into this account rolled back
+       * on exactly that.
+       *
+       * It is not only a workaround. Lambda's free tier is 400,000 GB-seconds
+       * a month, so halving memory doubles the seconds it buys. The cost is
+       * CPU, which scales with memory: /lightning downloads GOES imagery and
+       * works it with numpy, and it is the one at risk of running long. If it
+       * starts timing out, raise the quota with AWS Support and bring this
+       * back to 1024 — in that order, or the deploy fails again.
+       */
+      memorySize: 512,
+      /**
+       * API Gateway cuts any integration at 29 seconds, so anything above that
+       * only affects direct invocations. Kept at 30 to leave the function a
+       * moment to log its own timeout rather than being killed mid-request.
+       */
       timeout: cdk.Duration.seconds(30),
       architecture: lambda.Architecture.ARM_64,
       environment: {
@@ -112,6 +130,15 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
           limit: MONTHLY_QUOTA,
           period: apigateway.Period.MONTH,
         },
+        /**
+         * Without this the plan exists, the key exists, the key is linked to
+         * the plan — and every request still gets 403, because the plan is
+         * attached to no stage and so the key is valid nowhere. The first
+         * deploy of this file had exactly that, and it fails in the direction
+         * that looks like success: `curl` without a key is refused, which is
+         * what you check first.
+         */
+        apiStages: [{ api, stage: api.deploymentStage }],
       })
       .addApiKey(apiKey);
 
