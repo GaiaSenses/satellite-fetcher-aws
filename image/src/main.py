@@ -129,8 +129,17 @@ def get_rain_data(lat, lon):
         }
 
     i, j = aws.geo2grid(lat, lon, file)
-    rain_data = float(file['RRQPE'][:][i][j])
-    max_rain = file['maximum_rainfall_rate']
+
+    # `[:][i][j]` read the entire RRQPE grid into memory and then indexed it —
+    # a GOES full-disk raster loaded to look at one pixel. It cost 511 MB of the
+    # 512 the function has and killed every request with Runtime.OutOfMemory,
+    # which is also why the stack used to ask for 1024 MB it did not need.
+    # netCDF4 reads lazily when indexed directly, so this fetches one value.
+    rain_data = float(file['RRQPE'][i, j])
+
+    # Without the slice this was the netCDF Variable object, not the number in
+    # it, so the `rain_data <= max_rain` below compared a float to a variable.
+    max_rain = float(file['maximum_rainfall_rate'][:])
 
     file.close()
 
