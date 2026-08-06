@@ -8,3 +8,9 @@ node_modules
 cdk.out
 .env
 .env
+
+# Bytecode do Python. Ia junto para a imagem Docker sem servir para nada,
+# e mudava a cada `py_compile` — o passo de sintaxe do CI faria o repositório
+# aparecer sujo em toda execução.
+__pycache__/
+*.pyc
