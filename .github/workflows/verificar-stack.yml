@@ -69,5 +69,14 @@ jobs:
       - name: Sintaxe do Python
         run: python3 -m py_compile image/src/*.py
 
+      # Os testes de unidade do Python da Lambda. unittest da stdlib — sem
+      # framework novo; as dependências são as mesmas cinco da imagem.
+      - name: Testes do Python
+        run: |
+          # geopandas ainda é import do main.py neste ponto — sai no T21, junto
+          # desta linha.
+          python3 -m pip install --quiet numpy pandas geopandas shapely netCDF4 boto3
+          python3 -m unittest discover -s image/tests -v
+
       - name: Testes
         run: npm test
