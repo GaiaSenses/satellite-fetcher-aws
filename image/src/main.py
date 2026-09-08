@@ -21,7 +21,9 @@ def get_fire_data(lat, lon, dist=10, source="VIIRS_NOAA20_NRT"):
     minx, miny, maxx, maxy = buffer.bounds
     MAP_KEY = os.environ.get("FIRMS_MAP_KEY")
     url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{source}/{miny},{minx},{maxy},{maxx}/1"
-    logger.info(url)
+    # The FIRMS key is a path segment of this URL. Logging the URL as-is wrote a
+    # live credential to CloudWatch on every /fire call, with 30-day retention.
+    logger.info(url.replace(MAP_KEY, "***") if MAP_KEY else url)
     
     try:
         df_area = pd.read_csv(url)
@@ -181,7 +183,15 @@ def _respond(response_data):
 
 def handler(event, context):
 
-    logger.info(f"Received event: {json.dumps(event, indent=2)}")
+    # Never log the raw proxy event: it carries every request header, including
+    # the x-api-key the Gateway just validated, plus the caller's source IP.
+    # Logging it put a live credential and personal data into CloudWatch on every
+    # request. Log only what debugging actually uses.
+    logger.info(
+        "Received request: path=%s query=%s",
+        event.get("rawPath") or event.get("path", "/"),
+        event.get("queryStringParameters"),
+    )
 
     raw_path = event.get("rawPath", "/")
     path = event.get("path", "/")
