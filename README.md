@@ -4,6 +4,23 @@ This is a blank project for CDK development with TypeScript.
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
+> ℹ️ This README is still the CDK boilerplate — the full rewrite is tracked in [#19](https://github.com/GaiaSenses/satellite-fetcher-aws/issues/19). Until then, the notes below cover what the boilerplate does not: tests, alarms and key rotation. Releases are tagged since [`v1.0.0`](https://github.com/GaiaSenses/satellite-fetcher-aws/releases/tag/v1.0.0).
+
+## Python tests
+
+The Lambda code under `image/src/` has unit tests in `image/tests/` (regression tests for the `/fire` bounding box, input validation, the GOES slot fallback and the vectorized `/lightning` filter). CI runs them on every PR (`verificar-stack` workflow); locally:
+
+```bash
+python3 -m pip install numpy pandas shapely netCDF4 boto3
+python3 -m unittest discover -s image/tests -v
+```
+
+## Operations
+
+- **Alarms:** the stack creates three CloudWatch alarms (API 5xx, Lambda errors, p95 duration) that e-mail the project account through the `AlertasDeSaude` SNS topic, plus a JSON access log on the API Gateway (30-day retention, no headers). What to do when each one fires — and how to test the pipeline deliberately — is written in the [runbook](https://github.com/GaiaSenses/gaiasenses-docs/blob/main/runbook-alarmes-e-custos.md).
+- **API key rotation:** rename the API key construct in `lib/satellite-fetcher-aws-stack.ts` and deploy — CloudFormation creates the new key and deletes the old one in the same run. The recipe is commented right above the construct.
+- **Cost:** everything fits the free tier (API key + 10 rps throttle + 50k/month quota + ECR lifecycle keeping 3 images); a US$ 5 AWS Budget is the fence.
+
 ## Useful commands
 
 - `npm run build` compile typescript to js
