@@ -14,13 +14,27 @@ logger.setLevel(logging.INFO)
 
 
 
-def get_fire_data(lat, lon, dist=10, source="VIIRS_NOAA20_NRT"):
-    point = Point(float(lat),float(lon))
-    buffer = point.buffer(float(dist) / 111)
+def firms_area(lat, lon, dist):
+    """Caixa da consulta à FIRMS, no formato "west,south,east,north" da API.
 
+    O Point do shapely recebe (x, y) = (lon, lat). O código antigo passava
+    (lat, lon) — invertido — e compensava escrevendo os bounds na ordem trocada
+    na URL: dois erros que se cancelavam. Consertar só um deles faria o /fire
+    consultar o hemisfério errado e devolver zero focos sem nenhum erro. Por
+    isso a conta inteira vive nesta função, com um teste de regressão que fixa
+    a saída (tests/test_firms_area.py): quem mexer aqui e trocar o resultado
+    fica vermelho na hora.
+    """
+    point = Point(float(lon), float(lat))
+    buffer = point.buffer(float(dist) / 111)
     minx, miny, maxx, maxy = buffer.bounds
+    return f"{minx},{miny},{maxx},{maxy}"
+
+
+def get_fire_data(lat, lon, dist=10, source="VIIRS_NOAA20_NRT"):
+    area = firms_area(lat, lon, dist)
     MAP_KEY = os.environ.get("FIRMS_MAP_KEY")
-    url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{source}/{miny},{minx},{maxy},{maxx}/1"
+    url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{source}/{area}/1"
     # The FIRMS key is a path segment of this URL. Logging the URL as-is wrote a
     # live credential to CloudWatch on every /fire call, with 30-day retention.
     logger.info(url.replace(MAP_KEY, "***") if MAP_KEY else url)
