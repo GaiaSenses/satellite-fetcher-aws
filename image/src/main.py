@@ -4,7 +4,6 @@ import os
 import json
 import logging
 from shapely.geometry import Point
-import geopandas as gpd
 from aws_access import awsAccessGOES as aws
 from netCDF4 import Dataset
 
