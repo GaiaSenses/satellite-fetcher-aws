@@ -113,6 +113,11 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
     const api = new apigateway.RestApi(this, "SatelliteFetcherAwsApi", {
       restApiName: "SatelliteFetcherAwsApi",
       description: "Fetch satellite data",
+      // Access logging needs an ACCOUNT-level CloudWatch role that fresh AWS
+      // accounts do not have — without it the stage update fails with
+      // "CloudWatch Logs role ARN must be set in account settings". This makes
+      // the CDK create that role and register it (AWS::ApiGateway::Account).
+      cloudWatchRole: true,
       deployOptions: {
         stageName: "prod",
         // Per-method throttling is the second line, under the usage plan.
