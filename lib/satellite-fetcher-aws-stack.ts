@@ -72,8 +72,14 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       // The Gateway throttle (10 rps) limits arrivals, but with a 30 s timeout
       // the theoretical concurrent executions exceed 200 — and without a
       // reservation the function can also drain the account-wide concurrency
-      // pool. Ten matches the throttle and is the cost ceiling SEC-01 asked for.
-      reservedConcurrentExecutions: 10,
+      // pool. This is the cost ceiling SEC-01 asked for.
+      //
+      // Five, not ten: this account's total Lambda concurrency limit is 10
+      // (new-account default) and AWS requires at least 5 left unreserved, so
+      // 5 is the maximum reservable — deploying 10 fails with InvalidRequest.
+      // If the account quota is ever raised, this can go back up to match the
+      // Gateway throttle.
+      reservedConcurrentExecutions: 5,
       /**
        * API Gateway cuts any integration at 29 seconds, so anything above that
        * only affects direct invocations. Kept at 30 to leave the function a
