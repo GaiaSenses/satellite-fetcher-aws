@@ -69,6 +69,11 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
        * back to 1024 — in that order, or the deploy fails again.
        */
       memorySize: 512,
+      // The Gateway throttle (10 rps) limits arrivals, but with a 30 s timeout
+      // the theoretical concurrent executions exceed 200 — and without a
+      // reservation the function can also drain the account-wide concurrency
+      // pool. Ten matches the throttle and is the cost ceiling SEC-01 asked for.
+      reservedConcurrentExecutions: 10,
       /**
        * API Gateway cuts any integration at 29 seconds, so anything above that
        * only affects direct invocations. Kept at 30 to leave the function a
