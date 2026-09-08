@@ -127,7 +127,14 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       });
     }
 
-    const apiKey = api.addApiKey("SatelliteFetcherKey", {
+    // Rotation by rename: changing this construct id makes CloudFormation
+    // mint a brand-new key and DELETE the old one in the same deploy — the old
+    // value starts answering 403 the moment the stack settles, with no console
+    // clicking and no drift. This id carries the rotation date; to rotate
+    // again, bump it and update SATELLITE_API_KEY on Vercel right after the
+    // deploy. Rotated on 2026-09-08 because the previous value was written to
+    // CloudWatch by the proxy-event logging (fixed the same day).
+    const apiKey = api.addApiKey("SatelliteFetcherKey20260908", {
       description: "Used by the Gaiasenses web app, server-side only",
     });
 
