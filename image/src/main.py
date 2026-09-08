@@ -61,6 +61,38 @@ def get_fire_data(lat, lon, dist=50, source="VIIRS_NOAA20_NRT"):
         }
     
 
+def filtrar_flashes(lat, lon, dist, flash_lat, flash_lon, flash_energy, flash_quality):
+    """Flashes dentro da caixa e com qualidade 0, em operações de array.
+
+    A versão anterior percorria os flashes um a um em Python e, pior, fazia uma
+    leitura netCDF individual de flash_quality_flag por candidato — no endpoint
+    mais chamado do backend, numa Lambda de 512 MB. Um granule cheio (tempestade
+    grande, exatamente quando o site mais precisa responder) era o principal
+    candidato a estourar o timeout de 29 s do Gateway.
+
+    Aqui: uma máscara numpy decide tudo de uma vez, e as leituras do arquivo
+    acontecem uma única vez, fora desta função. A equivalência com o laço
+    antigo é fixada por teste (tests/test_filtrar_flashes.py) sobre granule
+    sintético — mesmo count, mesmos eventos, mesma ordem.
+    """
+    latlon_diff = float(dist) / 111
+    mascara = (
+        (np.abs(flash_lat - lat) <= latlon_diff)
+        & (np.abs(flash_lon - lon) <= latlon_diff)
+        & (flash_quality == 0)
+    )
+    indices = np.nonzero(mascara)[0]
+    eventos = [
+        {
+            "latitude": float(flash_lat[i]),
+            "longitude": float(flash_lon[i]),
+            "energy (pJ)": float(flash_energy[i] / 1e-12),
+        }
+        for i in indices
+    ]
+    return len(eventos), eventos
+
+
 def get_lightning_data(lat, lon, dist=50):
 
     lat = float(lat)
@@ -86,19 +118,14 @@ def get_lightning_data(lat, lon, dist=50):
 
     lightning_lat = file['flash_lat'][:]
     lightning_lon = file['flash_lon'][:]
-    lightning_energy =  file['flash_energy'][:]
-    lightning_count = 0
-    flash_events = []
-
-    latlon_diff = float(dist)/111
-
-    for i in range(len(lightning_lat)):
-        if np.abs(lightning_lat[i] - lat) <= latlon_diff and np.abs(lightning_lon[i] - lon) <= latlon_diff:
-            if file['flash_quality_flag'][i] == 0:
-                lightning_count += 1
-                flash_events.append({"latitude": float(lightning_lat[i]), "longitude": float(lightning_lon[i]), "energy (pJ)": float(lightning_energy[i]/1e-12)})
+    lightning_energy = file['flash_energy'][:]
+    lightning_quality = file['flash_quality_flag'][:]
 
     file.close()
+
+    lightning_count, flash_events = filtrar_flashes(
+        lat, lon, dist, lightning_lat, lightning_lon, lightning_energy, lightning_quality
+    )
 
     if (lightning_count > 0):
         response_data = {
