@@ -5,6 +5,10 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as budgets from "aws-cdk-lib/aws-budgets";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cw_actions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 
 /**
  * Free tier is not a promise the AWS console makes on its own — it is a
@@ -114,6 +118,18 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
         // Per-method throttling is the second line, under the usage plan.
         throttlingRateLimit: RATE_LIMIT,
         throttlingBurstLimit: BURST_LIMIT,
+        // Access log: who called what, when, with which status — without a
+        // single request header, so it cannot repeat the credential leak that
+        // application logging once caused. This is also what replaces, with
+        // advantage, the raw-event dump the Lambda used to write. 30 days,
+        // same retention policy as the function's own logs.
+        accessLogDestination: new apigateway.LogGroupLogDestination(
+          new logs.LogGroup(this, "ApiAccessLogs", {
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+          }),
+        ),
+        accessLogFormat: apigateway.AccessLogFormat.jsonWithStandardFields(),
       },
     });
 
@@ -201,6 +217,51 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       value: api.url,
       description: "Goes in SATELLITE_API_URL on Vercel",
     });
+
+    /**
+     * Availability alarms. The budget below warns about money; nothing warned
+     * about health — which is how /rain spent months answering errors while
+     * looking fine. Three alarms cover the failure modes this backend has
+     * actually had: the API answering 5xx, the function erroring, and the
+     * function creeping toward the Gateway's 29 s timeout.
+     *
+     * The e-mail subscription only becomes active after the address confirms
+     * it: AWS sends a "Subscription Confirmation" message on deploy, and until
+     * its link is clicked the alarms fire into the void.
+     */
+    const alertas = new sns.Topic(this, "AlertasDeSaude");
+    alertas.addSubscription(
+      new subscriptions.EmailSubscription("gaiasenses.cti@gmail.com"),
+    );
+
+    const alarme = (id: string, metric: cloudwatch.Metric, threshold: number, descricao: string) => {
+      new cloudwatch.Alarm(this, id, {
+        metric,
+        threshold,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        alarmDescription: descricao,
+      }).addAlarmAction(new cw_actions.SnsAction(alertas));
+    };
+
+    alarme(
+      "Alarme5xx",
+      api.metricServerError({ period: cdk.Duration.minutes(5), statistic: "Sum" }),
+      5,
+      "API do satélite respondendo 5xx — o site está mostrando 'fonte indisponível' para o público.",
+    );
+    alarme(
+      "AlarmeErrosLambda",
+      dockerFunc.metricErrors({ period: cdk.Duration.minutes(5), statistic: "Sum" }),
+      5,
+      "A função de satélite está errando — ver o log do CloudWatch.",
+    );
+    alarme(
+      "AlarmeDuracao",
+      dockerFunc.metricDuration({ period: cdk.Duration.minutes(5), statistic: "p95" }),
+      25000,
+      "p95 da função acima de 25 s — perto do timeout de 29 s do Gateway; provável granule pesado ou NOAA lenta.",
+    );
 
     new cdk.CfnOutput(this, "ApiKeyId", {
       value: apiKey.keyId,
