@@ -1,15 +1,14 @@
 # Congelado por completo (pip freeze dentro da imagem base pinada) para o build
-# ser reproduzível: antes, cada rebuild resolvia o que houvesse no dia — e o
-# código exige numpy>=2 (np.atan/np.asin), que um dia ruim de resolução quebraria
-# sem nenhuma mudança nossa. Dependências diretas: numpy, geopandas, shapely,
-# netCDF4, boto3; o resto é arrasto delas. Para atualizar: suba as diretas,
+# ser reproduzível. Dependências diretas: numpy, pandas, shapely, netCDF4,
+# boto3 — geopandas saiu (era um import sem nenhum uso, e arrastava GDAL,
+# pyproj e pyogrio para dentro da imagem). Para atualizar: suba as diretas,
 # rode o freeze dentro da imagem e regrave este arquivo inteiro.
 
 # — diretas —
 boto3==1.42.97
-geopandas==1.1.4
 netCDF4==1.7.4
 numpy==2.5.3
+pandas==3.0.5
 shapely==2.1.2
 
 # — transitivas (arrasto das diretas) —
@@ -18,10 +17,6 @@ botocore==1.42.97
 certifi==2026.7.22
 cftime==1.6.5
 jmespath==1.0.1
-packaging==26.3
-pandas==3.0.5
-pyogrio==0.13.0
-pyproj==3.8.0
 python-dateutil==2.9.0.post0
 s3transfer==0.16.0
 simplejson==4.1.2

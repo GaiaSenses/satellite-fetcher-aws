@@ -77,18 +77,31 @@ class awsAccessGOES:
     @staticmethod
     def download_aws(key: str, need_CM: bool =False, band: int =0) -> str:
 
-        prefix, cloud_mask = awsAccessGOES.__get_info(key, need_CM, band)
-
         s3_client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-        s3_result = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=prefix, Delimiter = "/")
 
-        if ('Contents' not in s3_result):
+        # O slot calculado é o mais recente que DEVERIA existir — mas a NOAA
+        # publica com minutos de atraso variável, e um slot ainda vazio é
+        # condição transitória e rotineira, não erro. Antes, essa condição
+        # virava FileNotFoundError e o usuário recebia 501 por um dado que
+        # existiria de novo dali a minutos. Agora recua-se até 3 janelas de
+        # 10 min: dado de meia hora atrás é melhor do que erro nenhum dado,
+        # e o log diz quando o fallback valeu.
+        prefixos_tentados = []
+        for slots_atras in range(4):
+            prefix, cloud_mask = awsAccessGOES.__get_info(key, need_CM, band, slots_atras)
+            s3_result = s3_client.list_objects_v2(Bucket='noaa-goes19', Prefix=prefix, Delimiter = "/")
+            if ('Contents' in s3_result):
+                if slots_atras > 0:
+                    print(f'fallback: slot atual sem granule; usando {slots_atras} janela(s) de 10 min atrás ({prefix})')
+                break
+            prefixos_tentados.append(prefix)
+        else:
             # Returning a path to a file that was never written pushed the
             # failure downstream, where it surfaced as "error reading the
             # file" — which sends whoever is debugging to the parser instead
             # of to the empty listing that actually caused it.
             raise FileNotFoundError(
-                f'no object under prefix {prefix} in noaa-goes19'
+                f'no object under any of {len(prefixos_tentados)} prefixes in noaa-goes19: {prefixos_tentados}'
             )
 
         object_key = s3_result['Contents'][0]['Key']
@@ -120,8 +133,14 @@ class awsAccessGOES:
         return path
 
     @staticmethod
-    def __get_info(key: str, need_CM: bool =False, band: int = 0) -> list[str]:
-        """Get all the necessary info to find a archive on aws"""
+    def __get_info(key: str, need_CM: bool =False, band: int = 0, slots_atras: int = 0) -> list[str]:
+        """Get all the necessary info to find a archive on aws.
+
+        slots_atras recua janelas inteiras de 10 min além do recuo base — é o
+        que permite ao download_aws tentar o granule anterior quando o slot
+        calculado ainda não foi publicado pela NOAA (atraso transitório e
+        rotineiro que antes virava 501 para o usuário).
+        """
         
         products = awsAccessGOES.__products
 
@@ -140,7 +159,7 @@ class awsAccessGOES:
         # Rewind to a granule that has certainly been published: GOES uploads
         # are minutes behind real time, and asking for the current slot returns
         # an empty listing.
-        date = date - datetime.timedelta(minutes=(date.minute % 10) + 10)
+        date = date - datetime.timedelta(minutes=(date.minute % 10) + 10 + 10 * slots_atras)
 
         year = date.year
         hour = date.hour

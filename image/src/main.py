@@ -4,7 +4,6 @@ import os
 import json
 import logging
 from shapely.geometry import Point
-import geopandas as gpd
 from aws_access import awsAccessGOES as aws
 from netCDF4 import Dataset
 
@@ -31,7 +30,7 @@ def firms_area(lat, lon, dist):
     return f"{minx},{miny},{maxx},{maxy}"
 
 
-def get_fire_data(lat, lon, dist=10, source="VIIRS_NOAA20_NRT"):
+def get_fire_data(lat, lon, dist=50, source="VIIRS_NOAA20_NRT"):
     area = firms_area(lat, lon, dist)
     MAP_KEY = os.environ.get("FIRMS_MAP_KEY")
     url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{source}/{area}/1"
@@ -195,6 +194,52 @@ def _respond(response_data):
     }
 
 
+DIST_PADRAO = 50
+DIST_MAXIMO = 1000
+
+
+def _parse_consulta(query_params, com_dist=True):
+    """Valida lat/lon/dist e devolve (lat, lon, dist, erro_400_ou_None).
+
+    As conversões float() viviam fora dos try dos handlers: ?lat=abc levantava
+    ValueError não tratado e o Gateway respondia 502 — erro de servidor para um
+    erro de cliente. É a mesma família do defeito já corrigido para query
+    string ausente; faltava o caso do valor inválido.
+
+    dist tinha dois defaults divergentes (10 no handler, 50 na função de raios)
+    e nenhum teto: ?dist=100000 virava um buffer de ~900° e uma caixa absurda
+    enviada à FIRMS. Agora: um default só (50 km) e teto de 1000 km — acima
+    disso é 400, porque um raio continental é sempre engano do chamador.
+    """
+    def _erro(msg):
+        return {"statusCode": 400, "body": json.dumps({"error": msg})}
+
+    bruto_lat = query_params.get("lat")
+    bruto_lon = query_params.get("lon")
+    if not bruto_lat or not bruto_lon:
+        logger.warning("Missing lat or lon in request.")
+        return None, None, None, _erro("Missing lat or lon.")
+    try:
+        lat = float(bruto_lat)
+        lon = float(bruto_lon)
+    except (TypeError, ValueError):
+        return None, None, None, _erro("lat and lon must be numbers.")
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+        return None, None, None, _erro("lat must be in [-90, 90] and lon in [-180, 180].")
+
+    dist = DIST_PADRAO
+    if com_dist:
+        bruto_dist = query_params.get("dist", DIST_PADRAO)
+        try:
+            dist = float(bruto_dist)
+        except (TypeError, ValueError):
+            return None, None, None, _erro("dist must be a number (km).")
+        if not (0 < dist <= DIST_MAXIMO):
+            return None, None, None, _erro(f"dist must be in (0, {DIST_MAXIMO}] km.")
+
+    return lat, lon, dist, None
+
+
 def handler(event, context):
 
     # Never log the raw proxy event: it carries every request header, including
@@ -217,47 +262,27 @@ def handler(event, context):
     query_params = event.get("queryStringParameters") or {}
 
     if path == "/fire" or raw_path == "/fire":
-        lat = query_params.get("lat")
-        lon = query_params.get("lon")
-        dist = query_params.get("dist", 10)
-
-        if not lat or not lon:
-            logger.warning("Missing lat or lon in request.")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"error": "Missing lat or lon."})
-            }
+        lat, lon, dist, erro = _parse_consulta(query_params)
+        if erro:
+            return erro
 
         logger.info(f"Fetching fire data for lat: {lat} and lon: {lon}.")
         response_data = get_fire_data(lat, lon, dist)
         return _respond(response_data)
     
     elif path == "/lightning" or raw_path == "/lightning":
-        lat = query_params.get("lat")
-        lon = query_params.get("lon")
-        dist = query_params.get("dist", 10)
-
-        if not lat or not lon:
-            logger.warning("Missing lat or lon in request.")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"error": "Missing lat or lon."})
-            }
+        lat, lon, dist, erro = _parse_consulta(query_params)
+        if erro:
+            return erro
 
         logger.info(f"Fetching lightning data for lat: {lat} and lon: {lon}.")
         response_data = get_lightning_data(lat, lon, dist)
         return _respond(response_data)
     
     elif path == "/rain" or raw_path == "/rain":
-        lat = query_params.get("lat")
-        lon = query_params.get("lon")
-
-        if not lat or not lon:
-            logger.warning("Missing lat or lon in request.")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"error": "Missing lat or lon."})
-            }
+        lat, lon, _dist, erro = _parse_consulta(query_params, com_dist=False)
+        if erro:
+            return erro
 
         logger.info(f"Fetching rain data for lat: {lat} and lon: {lon}.")
         response_data = get_rain_data(lat, lon)
