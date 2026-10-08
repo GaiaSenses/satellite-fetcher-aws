@@ -29,6 +29,18 @@ const BURST_LIMIT = 20;
  */
 const MONTHLY_QUOTA = 50_000;
 
+/**
+ * The public API route on gaiasenses-web (/api/v1) gets its own key on its own
+ * plan, so public traffic has a meter of its own. Exhausting this quota turns
+ * the public API's satellite sources into 429s; the site's 50k/10rps above are
+ * never shared. Sized small on purpose: the Next.js data cache in front of it
+ * collapses repeat coordinates, so what reaches here is mostly distinct cells —
+ * legitimate use stays far below this, and a sweep burns out against it.
+ */
+const PUBLIC_RATE_LIMIT = 2;
+const PUBLIC_BURST_LIMIT = 5;
+const PUBLIC_MONTHLY_QUOTA = 20_000;
+
 /** Where the budget alarm goes, and the threshold in US dollars. */
 const BUDGET_EMAIL = "gaiasenses.cti@gmail.com";
 const MONTHLY_BUDGET_USD = 5;
@@ -179,6 +191,31 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       })
       .addApiKey(apiKey);
 
+    // Same rotation-by-rename as the site key: bump the id's date to mint a
+    // new value and kill the old one in a single deploy, then update
+    // SATELLITE_API_KEY_PUBLIC on Vercel.
+    const publicApiKey = api.addApiKey("SatelliteFetcherPublicKey20261008", {
+      description:
+        "Used by the public API route on gaiasenses-web (/api/v1), server-side only",
+    });
+
+    api
+      .addUsagePlan("SatelliteFetcherPublicUsagePlan", {
+        name: "SatelliteFetcherPublicUsagePlan",
+        throttle: {
+          rateLimit: PUBLIC_RATE_LIMIT,
+          burstLimit: PUBLIC_BURST_LIMIT,
+        },
+        quota: {
+          limit: PUBLIC_MONTHLY_QUOTA,
+          period: apigateway.Period.MONTH,
+        },
+        // A plan attached to no stage validates its key nowhere — see the
+        // comment on the site plan above; it already cost one deploy cycle.
+        apiStages: [{ api, stage: api.deploymentStage }],
+      })
+      .addApiKey(publicApiKey);
+
     /**
      * The throttle and the quota bound usage. This bounds everything else —
      * a mistake in another service, a resource left running, a surprise none
@@ -273,6 +310,14 @@ export class SatelliteFetcherAwsStack extends cdk.Stack {
       description:
         "Read the value with: aws apigateway get-api-key --api-key <this> " +
         "--include-value --query value --output text",
+    });
+
+    new cdk.CfnOutput(this, "PublicApiKeyId", {
+      value: publicApiKey.keyId,
+      description:
+        "Goes in SATELLITE_API_KEY_PUBLIC on Vercel. Read the value with: " +
+        "aws apigateway get-api-key --api-key <this> --include-value " +
+        "--query value --output text",
     });
   }
 }

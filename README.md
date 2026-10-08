@@ -38,6 +38,7 @@ If a GOES time slot is missing on S3 (they land with delay sometimes), `/lightni
 |---|---|---|
 | Throttle | **10 rps**, burst 20 | usage plan + method throttling |
 | Quota | **50,000 requests/month** | usage plan |
+| Public plan | **2 rps**, burst 5, **20,000 requests/month** — separate key for the public API route on the site, so public traffic never shares the site's quota | `SatelliteFetcherPublicUsagePlan` |
 | Budget | **US$ 5/month** alarm to the project e-mail | `MonthlyBudget` in the stack |
 | Lambda | 512 MB, ARM64, 30 s timeout | `DockerFunc` |
 | Concurrency | account total (5) — no reservation, the account quota **is** the ceiling (see comment in the stack) | — |
@@ -72,12 +73,18 @@ npx cdk diff
 npx cdk deploy
 ```
 
-The deploy prints the API base URL. Read the generated API key:
+The deploy prints the API base URL. There are **two** generated keys, each on
+its own usage plan — read both:
 
 ```bash
 aws apigateway get-api-keys --query 'items[].{id:id,name:name}' --output table
 aws apigateway get-api-key --api-key <id> --include-value --query value --output text
 ```
+
+| Key (name prefix) | Plan | Goes in (Vercel env var) |
+|---|---|---|
+| `SatelliteFetcherKey…` | 10 rps / 50k month | `SATELLITE_API_KEY` — the site's map |
+| `SatelliteFetcherPublicKey…` | 2 rps / 20k month | `SATELLITE_API_KEY_PUBLIC` — the public `/api/v1` route |
 
 Smoke test — the acceptance is a **200 with real data**:
 
@@ -86,7 +93,7 @@ curl -s -H "x-api-key: <value>" \
   "https://<api-id>.execute-api.sa-east-1.amazonaws.com/prod/fire?lat=-22.85&lon=-47.12&dist=100"
 ```
 
-Finally, wire the site: set `SATELLITE_API_URL` (base URL, no trailing slash) and `SATELLITE_API_KEY` in the Vercel project of `Gaiasenses-web` and redeploy it.
+Finally, wire the site: set `SATELLITE_API_URL` (base URL, no trailing slash), `SATELLITE_API_KEY` and `SATELLITE_API_KEY_PUBLIC` in the Vercel project of `Gaiasenses-web` and redeploy it.
 
 ## Run locally
 
@@ -119,7 +126,7 @@ Both run on every PR in the `verificar-stack` workflow, which is a **required ch
 ## Operations
 
 - **Alarms** (all e-mail the project account through the `AlertasDeSaude` SNS topic): API 5xx ≥ 5 in 5 min (`Alarme5xx`), Lambda errors ≥ 5 (`AlarmeErrosLambda`), p95 duration > 25 s (`AlarmeDuracao`, near the Gateway's 29 s limit). What to do when each fires — and how to test the pipeline deliberately — is in the [runbook](https://github.com/GaiaSenses/gaiasenses-docs/blob/main/runbook-alarmes-e-custos.md).
-- **Rotating the API key:** rename the API key construct in `lib/satellite-fetcher-aws-stack.ts` and deploy — CloudFormation creates the new key and deletes the old one in the same run (recipe commented above the construct). Update `SATELLITE_API_KEY` on Vercel afterwards.
+- **Rotating an API key:** rename that key's construct in `lib/satellite-fetcher-aws-stack.ts` and deploy — CloudFormation creates the new key and deletes the old one in the same run (recipe commented above the construct). Update the matching Vercel variable afterwards (`SATELLITE_API_KEY` for the site key, `SATELLITE_API_KEY_PUBLIC` for the public one).
 - **Rotating `FIRMS_MAP_KEY`:** get a new key from NASA, update the Lambda environment (console or `aws lambda update-function-configuration`), and keep it out of git.
 
 ## Useful CDK commands
