@@ -54,7 +54,7 @@ describe("teto de uso", () => {
    * is refused, which is the first thing anyone checks, and it passes for the
    * wrong reason.
    */
-  test("o plano de uso está ligado a um stage", () => {
+  test("todos os planos de uso estão ligados a um stage", () => {
     // Read the resource and assert on it directly, instead of going through
     // hasResourceProperties. `Match.arrayWith` does not fail when the property
     // is absent altogether, which is exactly the case being guarded against —
@@ -65,12 +65,14 @@ describe("teto de uso", () => {
       template().findResources("AWS::ApiGateway::UsagePlan"),
     );
 
-    expect(planos).toHaveLength(1);
+    expect(planos).toHaveLength(2);
 
-    const estagios = planos[0].Properties?.ApiStages;
-    expect(Array.isArray(estagios)).toBe(true);
-    expect(estagios.length).toBeGreaterThan(0);
-    expect(estagios[0].Stage).toBeDefined();
+    for (const plano of planos) {
+      const estagios = plano.Properties?.ApiStages;
+      expect(Array.isArray(estagios)).toBe(true);
+      expect(estagios.length).toBeGreaterThan(0);
+      expect(estagios[0].Stage).toBeDefined();
+    }
   });
 
   test("há cota mensal e throttle", () => {
@@ -98,6 +100,38 @@ describe("teto de uso", () => {
           ]),
         }),
       ]),
+    });
+  });
+});
+
+describe("o plano público", () => {
+  /**
+   * A API pública do Gaiasenses-web usa uma chave própria num plano próprio,
+   * para que abuso do tráfego público esgote a cota PÚBLICA — e vire 429 —
+   * sem nunca dividir os 50k/mês e 10 rps que mantêm o mapa do site vivo.
+   * É a lição do HIG-03: a rota antiga era uma porta gratuita para um backend
+   * sem medidor; a porta nova tem medidor separado.
+   */
+  test("existem duas chaves, cada uma ligada a um plano", () => {
+    const t = template();
+    t.resourceCountIs("AWS::ApiGateway::ApiKey", 2);
+    t.resourceCountIs("AWS::ApiGateway::UsagePlanKey", 2);
+  });
+
+  test("o plano público tem throttle 2/5 e cota de 20 mil por mês", () => {
+    template().hasResourceProperties("AWS::ApiGateway::UsagePlan", {
+      UsagePlanName: "SatelliteFetcherPublicUsagePlan",
+      Quota: Match.objectLike({ Limit: 20_000, Period: "MONTH" }),
+      Throttle: Match.objectLike({ RateLimit: 2, BurstLimit: 5 }),
+    });
+  });
+
+  /** O plano do site permanece intocado: mesma cota, mesmo throttle. */
+  test("o plano do site continua com 50 mil por mês e 10 rps", () => {
+    template().hasResourceProperties("AWS::ApiGateway::UsagePlan", {
+      UsagePlanName: "SatelliteFetcherUsagePlan",
+      Quota: Match.objectLike({ Limit: 50_000, Period: "MONTH" }),
+      Throttle: Match.objectLike({ RateLimit: 10, BurstLimit: 20 }),
     });
   });
 });
